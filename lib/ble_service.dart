@@ -83,26 +83,22 @@ class BleService extends ChangeNotifier {
       state = BleConnState.connecting;
       notifyListeners();
 
-      await _device!.connect(timeout: const Duration(seconds: 10));
-
-      _connSub = _device!.connectionState.listen((s) {
-        if (s == BluetoothConnectionState.disconnected) {
-          state = BleConnState.disconnected;
-          notifyListeners();
+      // On a device's very first bond with the secured firmware, Android's
+      // connect() resolves on the initial GATT connect, then the OS tears
+      // that connection down immediately to run bonding (the characteristics
+      // require an encrypted, authenticated link) before reconnecting. That
+      // makes discoverServices() below throw on this first attempt — retry
+      // the whole connect+setup sequence rather than treating it as fatal.
+      const maxAttempts = 4;
+      for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          await _connectAndSetup();
+          break;
+        } catch (e) {
+          if (attempt == maxAttempts) rethrow;
+          await Future.delayed(const Duration(seconds: 3));
         }
-      });
-
-      final services = await _device!.discoverServices();
-      final svc = services.firstWhere((s) => s.uuid == kServiceUuid);
-      _controlChar = svc.characteristics.firstWhere((c) => c.uuid == kControlCharUuid);
-      _statusChar = svc.characteristics.firstWhere((c) => c.uuid == kStatusCharUuid);
-
-      await _statusChar!.setNotifyValue(true);
-      _statusSub = _statusChar!.lastValueStream.listen((bytes) {
-        if (bytes.isEmpty) return;
-        status = PumpStatus.fromRaw(utf8.decode(bytes));
-        notifyListeners();
-      });
+      }
 
       state = BleConnState.connected;
       notifyListeners();
@@ -125,6 +121,31 @@ class BleService extends ChangeNotifier {
       state = BleConnState.disconnected;
       notifyListeners();
     }
+  }
+
+  Future<void> _connectAndSetup() async {
+    await _device!.connect(timeout: const Duration(seconds: 10));
+
+    await _connSub?.cancel();
+    _connSub = _device!.connectionState.listen((s) {
+      if (s == BluetoothConnectionState.disconnected) {
+        state = BleConnState.disconnected;
+        notifyListeners();
+      }
+    });
+
+    final services = await _device!.discoverServices();
+    final svc = services.firstWhere((s) => s.uuid == kServiceUuid);
+    _controlChar = svc.characteristics.firstWhere((c) => c.uuid == kControlCharUuid);
+    _statusChar = svc.characteristics.firstWhere((c) => c.uuid == kStatusCharUuid);
+
+    await _statusChar!.setNotifyValue(true);
+    await _statusSub?.cancel();
+    _statusSub = _statusChar!.lastValueStream.listen((bytes) {
+      if (bytes.isEmpty) return;
+      status = PumpStatus.fromRaw(utf8.decode(bytes));
+      notifyListeners();
+    });
   }
 
   Future<void> disconnect() async {
