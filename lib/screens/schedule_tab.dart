@@ -52,10 +52,38 @@ class _ScheduleTabState extends State<ScheduleTab> {
     );
     if (duration == null) return;
 
-    _durationSeconds = duration;
-    await widget.ble.setSchedule(time.hour, time.minute, duration.round());
-    await widget.ble.requestStatus();
-  }
+      _durationSeconds = duration;
+
+      // Firmware's clock is UTC (see BleService.syncTime()), but the time
+      // picker above returns a LOCAL wall-clock time. Convert before sending,
+      // or the schedule fires at the wrong moment — this was the actual cause
+      // of schedules silently not firing at the expected local time.
+      final now = DateTime.now();
+      final localTarget = DateTime(now.year, now.month, now.day, time.hour, time.minute);
+      final utcTarget = localTarget.toUtc();
+
+      await widget.ble.setSchedule(utcTarget.hour, utcTarget.minute, duration.round());
+      await widget.ble.requestStatus();
+      }
+
+      /// Firmware reports the schedule's stored time as UTC "HH:MM" (see the
+      /// SCHED field in PumpStatus). Convert back to local time for display, so
+      /// the UI shows the same time the user originally picked.
+      String? _localScheduleLabel(String? utcHHMM) {
+        if (utcHHMM == null) return null;
+        final parts = utcHHMM.split(':');
+        if (parts.length != 2) return utcHHMM;
+        final h = int.tryParse(parts[0]);
+        final m = int.tryParse(parts[1]);
+        if (h == null || m == null) return utcHHMM;
+
+        final nowUtc = DateTime.now().toUtc();
+        final utcTarget = DateTime.utc(nowUtc.year, nowUtc.month, nowUtc.day, h, m);
+        final localTarget = utcTarget.toLocal();
+        final hh = localTarget.hour.toString().padLeft(2, '0');
+        final mm = localTarget.minute.toString().padLeft(2, '0');
+        return "$hh:$mm";
+      }
 
   @override
   Widget build(BuildContext context) {
@@ -76,7 +104,7 @@ class _ScheduleTabState extends State<ScheduleTab> {
                   const SizedBox(height: 12),
                   Text(
                     hasSchedule
-                        ? "Waters daily at ${status.scheduleTime} for ${status.scheduleDurationSec}s"
+                        ? "Waters daily at ${_localScheduleLabel(status.scheduleTime)} for ${status.scheduleDurationSec}s"
                         : "No schedule set",
                     style: Theme.of(context).textTheme.titleMedium,
                     textAlign: TextAlign.center,
