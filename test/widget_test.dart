@@ -1,30 +1,21 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:waterman_app/main.dart';
+import 'package:waterman_app/models/pump_status.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  test('parses a status with a schedule', () {
+    final s = PumpStatus.fromRaw('STATE:RUNNING;REMAIN:45;SCHED:07:00;SCHEDSEC:60;SYNCED:1');
+    expect(s.running, isTrue);
+    expect(s.remainingSeconds, 45);
+    expect(s.scheduleTime, '07:00');
+    expect(s.scheduleDurationSec, 60);
+    expect(s.timeSynced, isTrue);
+  });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  test('parses a status with no schedule', () {
+    final s = PumpStatus.fromRaw('STATE:IDLE;REMAIN:0;SCHED:NONE;SCHEDSEC:0;SYNCED:0');
+    expect(s.running, isFalse);
+    expect(s.scheduleTime, isNull);
+    expect(s.timeSynced, isFalse);
   });
 }
